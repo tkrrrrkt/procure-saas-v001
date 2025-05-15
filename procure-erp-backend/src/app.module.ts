@@ -59,7 +59,8 @@ try {
     CsrfModule,
     ThrottlerModule,
     AuditLogModule,
-    RedisModule,
+    // 一時的にRedisを無効化（Redis環境が整うまで）
+    // RedisModule,
     ...(HttpModule ? [HttpModule] : []),
     ...(ScheduleModule ? [ScheduleModule.forRoot()] : []),
     NotificationsModule,

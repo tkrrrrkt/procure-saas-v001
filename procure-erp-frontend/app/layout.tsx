@@ -4,7 +4,7 @@ import './globals.css'
 import { Inter } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/toaster'
-// ✅ AuthProvider は不要になったので import を削除
+import { AuthProvider } from '@/components/auth/auth-provider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -29,9 +29,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {/* Zustand ストアは React Tree のどこでも直接 useAuth() で読めるので
-              追加の Provider は不要 */}
-          {children}
+          {/* 認証プロバイダーを追加 */}
+          <AuthProvider>
+            {children}
+          </AuthProvider>
           <Toaster />
         </ThemeProvider>
       </body>

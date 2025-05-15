@@ -11,12 +11,15 @@ interface AuthState {
   user: User | null
   accessToken: string | null
   loading: boolean
+  initialized: boolean // 追加：初期化完了フラグ
   /** ログイン成功時に呼び出す */
   login: (u: User, at: string) => void
   /** ログアウト時に呼び出す */
   logout: () => void
   /** スピナー制御などに利用 */
   setLoading: (v: boolean) => void
+  /** 初期化完了フラグを設定 */
+  setInitialized: (v: boolean) => void // 追加：初期化設定メソッド
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -25,6 +28,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       accessToken: null,
       loading: false,
+      initialized: false, // 追加：初期値はfalse
 
       login: (user, accessToken) =>
         set({
@@ -36,6 +40,9 @@ export const useAuthStore = create<AuthState>()(
       logout: () => set({ user: null, accessToken: null, loading: false }),
 
       setLoading: (v) => set({ loading: v }),
+      
+      // 追加：初期化フラグ設定メソッド
+      setInitialized: (v) => set({ initialized: v }),
     }),
     {
       name: 'auth-storage',                            // LocalStorage のキー
@@ -43,6 +50,7 @@ export const useAuthStore = create<AuthState>()(
       partialize: (s) => ({
         user: s.user,
         accessToken: s.accessToken,
+        // 注：initializedフラグは永続化しない（セッションごとに初期化）
       }),
     },
   ),

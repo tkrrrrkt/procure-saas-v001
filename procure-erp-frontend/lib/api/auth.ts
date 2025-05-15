@@ -101,8 +101,17 @@ export const authApi = {
         return response.data.user;
       }
       return null;
-    } catch (error) {
+    } catch (error: any) {
       console.error('プロファイル取得エラー:', error);
+      // 認証エラー(401/403)の場合、ローカルストレージもクリア
+      const status = error?.response?.status;
+      if (status === 401 || status === 403) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('user');
+          localStorage.removeItem('auth-storage');
+        }
+      }
       return null;
     }
   }
