@@ -27,9 +27,11 @@ export class CsrfMiddleware implements NestMiddleware {
         // GETリクエスト時にCSRFトークンがなければ新規生成
         const token = this.generateToken();
         res.cookie('csrf_token', token, {
-          httpOnly: true,
+          httpOnly: false,
           secure: process.env.NODE_ENV === 'production',
           sameSite: 'strict',
+          path: '/',
+          maxAge: 86400000
         });
       }
       next();

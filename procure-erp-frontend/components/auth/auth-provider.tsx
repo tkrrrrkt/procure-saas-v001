@@ -33,8 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profileResult) {
           // 認証済みユーザーの復元
           console.log('認証済みユーザーを復元:', profileResult);
-          const token = localStorage.getItem('accessToken') || '';
-          login(profileResult, token);
+          // STEP 2: トークンはCookieにあるため空文字を渡す
+          // 後方互換性のためアクセストークンを引数として渡すが、
+          // 実際はCookieから自動送信されるため使用されない
+          login(profileResult, '');
           console.log('認証済み状態を設定完了');
         } else {
           // 認証情報なし - 確実にログアウト状態にする
@@ -77,6 +79,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isMounted = false;
     };
   }, [setLoading, login, logout, setInitialized]); // 依存配列にlogoutを追加
+
+  // 複数タブ間での認証状態同期のためのイベントリスナー
+  useEffect(() => {
+    // ページロード時にURLパラメータのクリアフラグをチェック
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('clear') === '1') {
+        // 他のタブからのクリア要求を検出
+        console.log('ログインページで認証クリアフラグを検出 - 再クリーンアップを実行');
+        // クリーンアップを実行（非同期）
+        import('@/utils/auth-utils').then(({ clearAllAuthData }) => {
+          clearAllAuthData();
+        }).catch(err => {
+          console.error('クリーンアップモジュール読み込みエラー:', err);
+        });
+      }
+    }
+
+    // ストレージイベントハンドラー
+    const handleStorageChange = async (event: StorageEvent) => {
+      // auth-storage の変更を監視
+      if (event.key === 'auth-storage') {
+        try {
+          console.log('他のタブでの認証状態変更を検出');
+          const newValue = event.newValue ? JSON.parse(event.newValue) : null;
+          
+          // ユーザー情報がクリアされた（ログアウト）場合
+          if (!newValue?.state?.user) {
+            console.log('他のタブでログアウトが検出されました - このタブもログアウト状態に同期');
+            
+            try {
+              // 認証関連データを完全にクリア
+              const { clearAllAuthData } = await import('@/utils/auth-utils');
+              clearAllAuthData();
+            } catch (err) {
+              console.error('クリーンアップモジュール読み込みエラー:', err);
+            }
+
+            // 明示的なリダイレクトは避け、状態のみ更新
+            logout();
+            // ページのリロードでUIを最新状態に更新
+            window.location.reload();
+          }
+        } catch (error) {
+          console.error('ストレージ変更ハンドリングエラー:', error);
+        }
+      }
+    };
+    
+    // イベントリスナー登録（ブラウザ環境のみ）
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorageChange);
+    }
+    
+    // クリーンアップ
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleStorageChange);
+      }
+    };
+  }, [logout]); // logoutのみを依存配列に追加
 
   return <>{children}</>;
 }

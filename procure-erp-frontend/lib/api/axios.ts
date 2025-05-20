@@ -17,12 +17,16 @@ export const axiosInstance = axios.create({
 // リクエストインターセプター
 axiosInstance.interceptors.request.use(
   async (config) => {
+    // STEP 2: ローカルストレージからのトークン取得を削除
+    // HttpOnly Cookie が自動的に送信されるため、明示的なヘッダー設定は不要
+    /*
     // 後方互換性のため、localStorage からもトークンを取得
     // HttpOnly Cookie が優先されるが、古いコードとの互換性のため維持
     const token = localStorage.getItem("accessToken");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    */
     
     // 非GETリクエストの場合のみCSRFトークンを設定
     if (config.method !== 'get') {
@@ -66,12 +70,17 @@ axiosInstance.interceptors.response.use(
         });
         
         if (response.data.status === 'success' && response.data.data) {
+          // STEP 2: ローカルストレージへのトークン保存を削除
+          // 新しいアクセストークンはHTTPOnly Cookieに自動保存されるため、
+          // ローカルストレージへの保存や明示的なヘッダー設定は不要
+          /*
           // 後方互換性のため、アクセストークンをローカルストレージにも保存
           if (response.data.data.accessToken) {
             localStorage.setItem("accessToken", response.data.data.accessToken);
             // リクエストヘッダーを更新
             originalRequest.headers.Authorization = `Bearer ${response.data.data.accessToken}`;
           }
+          */
           
           // 新しいトークンはCookieに自動保存されているので、
           // 単にリクエストを再試行するだけでOK
@@ -80,9 +89,8 @@ axiosInstance.interceptors.response.use(
       } catch (refreshError) {
         console.error("トークンリフレッシュエラー:", refreshError);
         
-        // 認証関連の情報をクリア
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("user");
+        // STEP 3: 認証関連の情報をクリア（強化されたクリーンアップ）
+        clearAuthData();
         
         // 認証関連の問題の場合はログインページにリダイレクト
         if (typeof window !== "undefined") {
@@ -156,6 +164,43 @@ axiosInstance.interceptors.response.use(
 // アプリ起動時にCSRFトークンを取得
 if (typeof window !== 'undefined') {
   csrfManager.getToken().catch(console.error);
+}
+
+// STEP 3: 認証データクリア用のヘルパー関数
+async function clearAuthData() {
+  try {
+    // 新しいユーティリティ関数をインポート
+    const { clearAllAuthData, debugCookies } = await import('@/utils/auth-utils');
+    
+    // デバッグ用: 削除前のCookie状態をログ
+    debugCookies('Before clearAuthData');
+    
+    // Zustandストアをクリア（利用可能な場合）
+    const useAuthStore = require('@/stores/authStore').useAuthStore;
+    if (useAuthStore && typeof useAuthStore.getState === 'function') {
+      useAuthStore.getState().logout();
+    }
+    
+    // すべての認証関連データを一括クリア
+    clearAllAuthData();
+    
+    // デバッグ用: 削除後のCookie状態をログ
+    debugCookies('After clearAuthData');
+  } catch (error) {
+    console.error('認証データクリアエラー:', error);
+    
+    // エラー時のフォールバック処理（古い方法を残す）
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('user');
+      localStorage.removeItem('auth-storage');
+      
+      // 基本的なCookie削除（フォールバック）
+      document.cookie = 'access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+      document.cookie = 'refresh_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/api/auth;';
+      document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    }
+  }
 }
 
 // エクスポート

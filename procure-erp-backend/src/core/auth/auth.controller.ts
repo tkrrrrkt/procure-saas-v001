@@ -103,44 +103,32 @@ export class AuthController {
         };
       }
 
-      // 環境変数から取得
-      const isProduction = this.configService.get('NODE_ENV') === 'production';
-      const accessTokenExpiry = this.configService.get('JWT_EXPIRATION', '4h');
-      // 時間単位を秒に変換（例: "4h" → 14400秒）
-      const expiryInSeconds = this.parseExpiry(accessTokenExpiry);
-      const maxAge = expiryInSeconds * 1000; // ミリ秒に変換
-
-      // Cookie 設定 - アクセストークン（新しい名前）
-      response.cookie('access_token', result.accessToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',  // アプリケーション全体でアクセス可能
-        maxAge: maxAge,
-      });
+      // 一元管理された方法でCookieを設定（AuthServiceの共通メソッドを使用）
+      
+      // アクセストークンのCookie設定（新しい名前）
+      this.authService.setCookie(
+        response,
+        'access_token',
+        result.accessToken,
+        'access'
+      );
 
       // 後方互換性のため、古い名前のCookieも設定
-      response.cookie('token', result.accessToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',
-        maxAge: maxAge,
-      });
+      this.authService.setCookie(
+        response,
+        'token',
+        result.accessToken,
+        'access'
+      );
 
+      // リフレッシュトークンがあれば設定
       if (result.refreshToken) {
-        // リフレッシュトークンの有効期限を取得
-        const refreshExpiry = this.configService.get('JWT_REFRESH_EXPIRATION', '30d');
-        const refreshExpiryInSeconds = this.parseExpiry(refreshExpiry);
-        
-        // リフレッシュトークンのCookie設定
-        response.cookie('refresh_token', result.refreshToken, {
-          httpOnly: true,
-          secure: isProduction,
-          sameSite: 'strict',
-          path: '/api/auth',  // 認証エンドポイントのみに制限
-          maxAge: refreshExpiryInSeconds * 1000, // ミリ秒に変換
-        });
+        this.authService.setCookie(
+          response,
+          'refresh_token',
+          result.refreshToken,
+          'refresh'
+        );
       }
 
       this.logger.log(`Login succeeded for user: ${loginDto.username}`);
@@ -251,43 +239,32 @@ export class AuthController {
         };
       }
 
-      // 環境変数から取得
-      const isProduction = this.configService.get('NODE_ENV') === 'production';
-      const accessTokenExpiry = this.configService.get('JWT_EXPIRATION', '4h');
-      const expiryInSeconds = this.parseExpiry(accessTokenExpiry);
-      const maxAge = expiryInSeconds * 1000; // ミリ秒に変換
-
-      // アクセストークンのCookie設定 - 新しい名前
-      response.cookie('access_token', result.accessToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',
-        maxAge: maxAge,
-      });
+      // 一元管理された方法でCookieを設定
+      
+      // アクセストークンのCookie設定（新しい名前）
+      this.authService.setCookie(
+        response,
+        'access_token',
+        result.accessToken,
+        'access'
+      );
 
       // 後方互換性のため、古い名前のCookieも設定
-      response.cookie('token', result.accessToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',
-        maxAge: maxAge,
-      });
+      this.authService.setCookie(
+        response,
+        'token',
+        result.accessToken,
+        'access'
+      );
 
+      // リフレッシュトークンがあれば設定
       if (result.refreshToken) {
-        // リフレッシュトークンの有効期限を取得
-        const refreshExpiry = this.configService.get('JWT_REFRESH_EXPIRATION', '30d');
-        const refreshExpiryInSeconds = this.parseExpiry(refreshExpiry);
-        
-        // リフレッシュトークンのCookie設定
-        response.cookie('refresh_token', result.refreshToken, {
-          httpOnly: true,
-          secure: isProduction,
-          sameSite: 'strict',
-          path: '/api/auth',  // 認証エンドポイントのみに制限
-          maxAge: refreshExpiryInSeconds * 1000, // ミリ秒に変換
-        });
+        this.authService.setCookie(
+          response,
+          'refresh_token',
+          result.refreshToken,
+          'refresh'
+        );
       }
 
       // 後方互換性のためにトークンをレスポンスボディにも含める
@@ -341,41 +318,42 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<ApiResponse<{ message: string }>> {
     try {
+      // 環境が本番でない場合のみデバッグログを表示
+      if (this.configService.get('NODE_ENV') !== 'production') {
+        this.logger.debug(`[DEBUG] ログアウト前のCookies: ${JSON.stringify(request.cookies)}`);
+      }
+      
       // 現在のトークンを取得（新旧両方のCookie名に対応）
       const token = request.cookies['access_token'] || request.cookies['token'];
       
       // トークンが存在する場合、ブラックリストに追加（無効化）
       if (token) {
         await this.authService.logout(token);
-        this.logger.log('Token blacklisted successfully');
+        
+        if (this.configService.get('NODE_ENV') !== 'production') {
+          this.logger.debug(`[DEBUG] トークンをブラックリストに追加: ${token.substring(0, 10)}...`);
+        }
       }
 
-      const isProduction = this.configService.get('NODE_ENV') === 'production';
-
-      // トークンCookieを削除（新旧両方のCookie名に対応）
-      response.clearCookie('access_token', {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',
+      // 一元管理された方法でCookieを削除
+      const cookieNames = ['access_token', 'token', 'refresh_token', 'csrf_token'];
+      
+      // 各Cookieタイプに合わせて削除処理
+      cookieNames.forEach(name => {
+        // 適切なCookieタイプを判断
+        let cookieType: 'access' | 'refresh' | 'csrf' = 'access';
+        if (name === 'refresh_token') cookieType = 'refresh';
+        if (name === 'csrf_token') cookieType = 'csrf';
+        
+        // 一元管理されたメソッドを使用してCookieを削除
+        this.authService.clearCookie(response, name, cookieType);
       });
       
-      // 後方互換性のため、古い名前のCookieも削除
-      response.clearCookie('token', {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/',
-      });
+      // 環境が本番でない場合のみデバッグログ
+      if (this.configService.get('NODE_ENV') !== 'production') {
+        this.logger.debug(`[DEBUG] レスポンスヘッダー: ${JSON.stringify(response.getHeaders())}`);
+      }
       
-      // リフレッシュトークンCookieを削除
-      response.clearCookie('refresh_token', {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        path: '/api/auth',
-      });
-
       this.logger.log('User logged out');
 
       return {
@@ -383,9 +361,16 @@ export class AuthController {
         data: {
           message: 'ログアウトしました',
         },
+        // 開発環境でのみデバッグ情報を追加（本番環境では表示しない）
+        ...(this.configService.get('NODE_ENV') !== 'production' ? {
+          debug: {
+            cookies_removed: true,
+            timestamp: new Date().toISOString()
+          }
+        } : {})
       };
     } catch (error) {
-      this.logger.error('Logout error', error instanceof Error ? error.stack : undefined);
+      this.logger.error(`[DEBUG] ログアウトエラー: ${error.message}`, error.stack);
       return {
         status: 'success', // エラーでもユーザーにはログアウト成功と表示
         data: {
@@ -501,6 +486,46 @@ export class AuthController {
     return {
       status: 'success',
       data: { user: req.user },
+    };
+  }
+
+  // FOR DEBUG ONLY - テスト用のCookieデバッグエンドポイント
+  @Get('debug-cookies')
+  @SkipThrottle()
+  async debugCookies(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<any> {
+    // 本番環境の場合はこのエンドポイントを無効化
+    if (this.configService.get('NODE_ENV') === 'production') {
+      return {
+        message: 'Debug endpoint is disabled in production',
+      };
+    }
+    
+    // 現在のCookieをログに記録
+    this.logger.debug(`[DEBUG] 現在のCookies: ${JSON.stringify(request.cookies)}`);
+    
+    // テスト用Cookieを設定と削除（一元管理されたメソッドを使用）
+    // 設定
+    this.authService.setCookie(
+      response,
+      'test_cookie',
+      'test_value',
+      'access'
+    );
+    
+    // 削除
+    this.authService.clearCookie(
+      response,
+      'test_cookie',
+      'access'
+    );
+    
+    return {
+      cookies: request.cookies,
+      message: 'Cookies logged and test cookie set/cleared',
+      headers: response.getHeaders()
     };
   }
 

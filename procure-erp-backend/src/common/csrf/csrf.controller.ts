@@ -25,12 +25,14 @@ export class CsrfController {
     
     // Cookieに保存
     res.cookie('csrf_token', token, {
-      httpOnly: true,
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
+      path: '/',
+      maxAge: 86400000
     });
     
-    // レスポンスボディでも返す（フロントエンドでヘッダー設定用）
+    // レスポンスボディでも返す
     return { token };
   }
 }

@@ -6,6 +6,7 @@ import { LoginDto, TokenResponseDto } from './dto/auth.dto';
 import { RefreshTokenResponseDto } from './dto/refresh-token.dto';
 import * as bcrypt from 'bcrypt';
 import { TokenBlacklistService } from './token-blacklist.service';
+import { Response } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -184,6 +185,148 @@ export class AuthService {
         message: 'ログアウト処理に失敗しました',
         code: 'LOGOUT_FAILED' 
       };
+    }
+  }
+
+  /**
+   * 認証用Cookieの設定情報を取得する
+   * アプリケーション全体でCookie設定を一元管理するためのメソッド
+   */
+  getCookieSettings(
+    cookieType: 'access' | 'refresh' | 'csrf' = 'access'
+  ): {
+    httpOnly: boolean;
+    secure: boolean;
+    sameSite: boolean | 'lax' | 'strict' | 'none'; // Express.jsの型定義に合わせる
+    path: string;
+    domain?: string;
+    maxAge?: number;
+  } {
+    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const domainConfig = this.configService.get('COOKIE_DOMAIN');
+    
+    // 基本設定（デフォルトはアクセストークン用）
+    const baseSettings = {
+      httpOnly: true,
+      secure: isProduction, // 本番環境ではセキュア属性を有効化
+      sameSite: 'strict', // 小文字に変更（Express.jsの要求に合わせる）
+      path: '/',
+      domain: isProduction && domainConfig ? domainConfig : undefined
+    };
+    
+    // トークンタイプに応じた設定
+    switch (cookieType) {
+      case 'refresh':
+        // リフレッシュトークンはより制限されたパスに設定
+        return {
+          httpOnly: baseSettings.httpOnly,
+          secure: baseSettings.secure,
+          sameSite: baseSettings.sameSite as 'strict', // 明示的に型を指定
+          path: '/api/auth', // 認証エンドポイントのみに制限
+          domain: baseSettings.domain,
+          maxAge: this.parseExpiry(this.configService.get('JWT_REFRESH_EXPIRATION', '30d')) * 1000
+        };
+      case 'csrf':
+        // CSRFトークンは非HTTPOnly（JavaScriptからアクセス可能）
+        return {
+          httpOnly: false,
+          secure: baseSettings.secure,
+          sameSite: baseSettings.sameSite as 'strict', // 明示的に型を指定
+          path: '/',
+          domain: baseSettings.domain,
+          maxAge: 86400000 // 24時間
+        };
+      case 'access':
+      default:
+        // アクセストークン（デフォルト）
+        return {
+          httpOnly: baseSettings.httpOnly,
+          secure: baseSettings.secure,
+          sameSite: baseSettings.sameSite as 'strict', // 明示的に型を指定
+          path: '/',
+          domain: baseSettings.domain,
+          maxAge: this.parseExpiry(this.configService.get('JWT_EXPIRATION', '4h')) * 1000
+        };
+    }
+  }
+
+  /**
+   * Cookie設定をレスポンスに適用する
+   * 既存のCookieを置き換え、トークンをセットする
+   */
+  setCookie(
+    response: Response,
+    name: string,
+    value: string,
+    cookieType: 'access' | 'refresh' | 'csrf' = 'access'
+  ): void {
+    const settings = this.getCookieSettings(cookieType);
+    response.cookie(name, value, settings);
+    
+    // デバッグ用：環境がproductionでない場合のみログ出力
+    if (this.configService.get('NODE_ENV') !== 'production') {
+      this.logger.debug(`Cookie設定: ${name}, path=${settings.path}, secure=${settings.secure}, sameSite=${settings.sameSite}`);
+    }
+  }
+
+  /**
+   * Cookieを削除する
+   * 複数のパスで削除を試行し、確実に削除する
+   */
+  clearCookie(
+    response: Response,
+    name: string,
+    cookieType: 'access' | 'refresh' | 'csrf' = 'access'
+  ): void {
+    // 基本設定を取得
+    const settings = this.getCookieSettings(cookieType);
+    
+    // まず基本パスでクリア
+    response.clearCookie(name, settings);
+    
+    // 環境が本番でない場合のみデバッグログ
+    if (this.configService.get('NODE_ENV') !== 'production') {
+      this.logger.debug(`Cookie削除: ${name}, path=${settings.path}, secure=${settings.secure}, sameSite=${settings.sameSite}`);
+    }
+    
+    // すべての可能性のあるパスで網羅的に削除を試みる（互換性のため）
+    const fallbackPaths = ['/', '/api', '/api/auth', ''];
+    
+    // 基本設定のパスがfallbackPathsにない場合のみ追加で削除
+    if (!fallbackPaths.includes(settings.path)) {
+      fallbackPaths.forEach(path => {
+        if (path !== settings.path) {
+          const altSettings = { ...settings, path };
+          response.clearCookie(name, altSettings);
+          
+          if (this.configService.get('NODE_ENV') !== 'production') {
+            this.logger.debug(`Cookie追加削除: ${name}, path=${path}`);
+          }
+        }
+      });
+    }
+  }
+
+  /**
+   * JWT有効期限文字列をパースして秒数に変換
+   * 例: "1h" -> 3600, "2d" -> 172800
+   */
+  parseExpiry(expiry: string): number {
+    if (!expiry) return 14400; // デフォルト4時間（秒）
+    
+    const match = expiry.match(/^(\\d+)([smhdw])$/);
+    if (!match) return 14400; // デフォルト4時間（秒）
+    
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+    
+    switch (unit) {
+      case 's': return value; // 秒
+      case 'm': return value * 60; // 分→秒
+      case 'h': return value * 60 * 60; // 時間→秒
+      case 'd': return value * 24 * 60 * 60; // 日→秒
+      case 'w': return value * 7 * 24 * 60 * 60; // 週→秒
+      default: return 14400; // デフォルト4時間（秒）
     }
   }
 }

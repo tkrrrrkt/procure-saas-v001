@@ -14,31 +14,36 @@ export interface LoginResponse {
 
 export const authApi = {
   async login(username: string, password: string, rememberMe: boolean): Promise<LoginResponse> {
-    const response = await apiClient.post<{
-      user: User;
-      accessToken?: string;
-      refreshToken?: string;
-    }>('/auth/login', {
-      username,
-      password,
-      rememberMe,
-    });
-    
-    if (response.status === 'success' && response.data) {
-      // アクセストークンとリフレッシュトークンはCookieに自動保存される
-      // ただし後方互換性のため、レスポンスからもアクセス可能
+    try {
+      const response = await apiClient.post<{
+        user: User;
+        accessToken?: string;
+        refreshToken?: string;
+      }>('/auth/login', {
+        username,
+        password,
+        rememberMe,
+      });
+      
+      if (response.status === 'success' && response.data) {
+        // STEP 2: アクセストークンとリフレッシュトークンはCookieに自動保存される
+        return {
+          user: response.data.user,
+          // 後方互換性のためにレスポンスのトークンを含める（実際は使用しない）
+          accessToken: response.data.accessToken || null,
+          refreshToken: null, // 安全のためリフレッシュトークンはクライアントに返さない
+        };
+      }
+      
       return {
-        user: response.data.user,
-        accessToken: response.data.accessToken || null,
-        refreshToken: response.data.refreshToken || null,
+        user: null,
+        accessToken: null,
+        refreshToken: null,
       };
+    } catch (error) {
+      console.error('ログインエラー:', error);
+      throw error;
     }
-    
-    return {
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-    };
   },
   
   async refreshToken(refreshTokenValue?: string): Promise<LoginResponse> {
@@ -68,14 +73,57 @@ export const authApi = {
   },
   
   async logout(): Promise<void> {
-    // トークンはCookieにあるので自動的に送信される
-    // バックエンドでトークンがブラックリストに追加され、Cookieも削除される
-    await apiClient.post<void>('/auth/logout');
-    
-    // 後方互換性のため、ローカルストレージも消去
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('user');
+    try {
+      console.log('[DEBUG] ログアウト処理開始');
+      // デバッグ: 現在のCookieを表示
+      console.log('[DEBUG] ログアウトAPI呼び出し前のCookies:', document.cookie);
+      
+      // STEP 3: バックエンドAPI呼び出し
+      // トークンはCookieにあるので自動的に送信される
+      // バックエンドでトークンがブラックリストに追加され、Cookieも削除される
+      const response = await apiClient.post<void>('/auth/logout');
+      console.log('[DEBUG] ログアウトAPIレスポンス:', response);
+      
+      // デバッグ: レスポンス後のCookieを表示
+      console.log('[DEBUG] ログアウトAPI呼び出し後のCookies:', document.cookie);
+    } catch (error) {
+      console.error('[DEBUG] ログアウトAPI呼び出しエラー:', error);
+    } finally {
+      // auth-utils.tsの共通関数を利用した確実なクリーンアップ処理
+      try {
+        // デバッグ: クリーンアップ処理前のCookieを表示
+        console.log('[DEBUG] クリーンアップ処理前のCookies:', document.cookie);
+        
+        // 動的インポートを使用してユーティリティ関数をロード
+        const { clearAllAuthData, debugCookies } = await import('@/utils/auth-utils');
+        
+        // デバッグ用: 削除前のCookie状態をログ
+        debugCookies('[DEBUG] logout cleanup 前');
+        
+        // 認証関連データを完全にクリア
+        clearAllAuthData();
+        
+        // デバッグ用: 削除後のCookie状態をログ
+        debugCookies('[DEBUG] logout cleanup 後');
+        
+        // デバッグ: クリーンアップ処理後のCookieを表示
+        console.log('[DEBUG] クリーンアップ処理後のCookies:', document.cookie);
+        
+        // 最後に強制リダイレクト（少し遅延を入れてクリーンアップ処理を確実に完了させる）
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            // デバッグ用クエリパラメータを追加
+            console.log('[DEBUG] ログインページへリダイレクト');
+            window.location.href = '/login?clear=1&debug=1&t=' + new Date().getTime();
+          }
+        }, 300); // 遅延を300msに増加
+      } catch (cleanupError) {
+        console.error('[DEBUG] ログアウトクリーンアップエラー:', cleanupError);
+        // エラーが発生した場合でも最低限のリダイレクトは実行
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+      }
     }
   },
   

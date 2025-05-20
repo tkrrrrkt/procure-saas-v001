@@ -33,7 +33,9 @@ export const useAuthStore = create<AuthState>()(
       login: (user, accessToken) =>
         set({
           user,
-          accessToken,
+          // セキュリティ対策: HTTPOnly Cookie経由で認証を行うため、
+          // アクセストークンはストアに保存せず、空文字列を設定します
+          accessToken: '',
           loading: false,
         }),
 
@@ -49,7 +51,9 @@ export const useAuthStore = create<AuthState>()(
       storage: createJSONStorage(() => localStorage), // LocalStorage に永続化
       partialize: (s) => ({
         user: s.user,
-        accessToken: s.accessToken,
+        // セキュリティ対策: HTTPOnly Cookie経由で認証を行うため、
+        // アクセストークンはストアに永続化しません
+        accessToken: '',
         // 注：initializedフラグは永続化しない（セッションごとに初期化）
       }),
     },

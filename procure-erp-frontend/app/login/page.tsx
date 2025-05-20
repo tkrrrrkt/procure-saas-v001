@@ -19,6 +19,36 @@ export default function LoginPage() {
   const { login } = useAuth()
   const { toast } = useToast()
 
+  // ページロード時にURLパラメータをチェック
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      
+      // ?clear=1 パラメータがある場合は認証データの追加クリーンアップを実行
+      if (params.get('clear') === '1') {
+        console.log('ログインページで認証クリアパラメータを検出');
+        
+        // 履歴を修正（クリアパラメータを削除）
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+        
+        // 認証データクリーンアップを実行
+        import('@/utils/auth-utils').then(({ clearAllAuthData, debugCookies }) => {
+          debugCookies('Login page - before cleanup');
+          clearAllAuthData();
+          debugCookies('Login page - after cleanup');
+          
+          // クリーンアップ完了通知
+          toast({
+            description: "ログアウト処理が完了しました",
+          });
+        }).catch(err => {
+          console.error('ログインページでのクリーンアップエラー:', err);
+        });
+      }
+    }
+  }, [toast]);
+
   // useFormフックでフォーム状態を管理
   const { 
     register, 

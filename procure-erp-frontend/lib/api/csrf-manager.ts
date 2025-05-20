@@ -56,23 +56,40 @@ export class CsrfTokenManager {
   private async fetchToken(): Promise<string | null> {
     try {
       console.log('CSRFトークンをサーバーから取得しています...');
-      
       const response = await axios.get<{ token: string }>(`${API_URL}/csrf/token`, {
-        withCredentials: true // クッキーを送受信するために必要
+        withCredentials: true
       });
-      
-      if (response.data && response.data.token) {
+      if (response.data?.token) {
         this.token = response.data.token;
         console.log('CSRFトークンを取得しました:', this.token.substring(0, 8) + '...');
         return this.token;
       }
-      
+      // Cookieから直接取得を試みる
+      const cookieToken = this.getCsrfTokenFromCookie();
+      if (cookieToken) {
+        this.token = cookieToken;
+        return cookieToken;
+      }
       console.warn('CSRFトークン取得レスポンスにtokenが含まれていません');
       return null;
     } catch (error) {
-      console.error("CSRFトークン取得エラー:", error);
+      console.error('CSRFトークン取得エラー:', error);
+      // Cookieから直接取得を試みる
+      const cookieToken = this.getCsrfTokenFromCookie();
+      if (cookieToken) {
+        this.token = cookieToken;
+        return cookieToken;
+      }
       return null;
     }
+  }
+  
+  private getCsrfTokenFromCookie(): string | null {
+    if (typeof document === 'undefined') return null;
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; csrf_token=`);
+    if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+    return null;
   }
   
   /**
